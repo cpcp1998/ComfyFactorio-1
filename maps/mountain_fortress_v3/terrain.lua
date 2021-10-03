@@ -4,6 +4,7 @@ local Functions = require 'maps.mountain_fortress_v3.functions'
 local Generate_resources = require 'maps.mountain_fortress_v3.resource_generator'
 local WPT = require 'maps.mountain_fortress_v3.table'
 local get_perlin = require 'utils.get_perlin'
+local CrashSite = require 'maps.mountain_fortress_v3.crash_site'
 
 local Public = {}
 local random = math.random
@@ -94,7 +95,8 @@ local callback = {
     [3] = {callback = Functions.refill_turret_callback, data = Functions.uranium_rounds_magazine_ammo},
     [4] = {callback = Functions.refill_turret_callback, data = Functions.uranium_rounds_magazine_ammo},
     [5] = {callback = Functions.refill_liquid_turret_callback, data = Functions.light_oil_ammo},
-    [6] = {callback = Functions.refill_artillery_turret_callback, data = Functions.artillery_shell_ammo}
+    [6] = {callback = Functions.refill_artillery_turret_callback, data = Functions.artillery_shell_ammo},
+    [11] = {callback = Functions.power_source_callback}
 }
 
 local turret_list = {
@@ -103,7 +105,12 @@ local turret_list = {
     [3] = {name = 'gun-turret', callback = callback[3]},
     [4] = {name = 'gun-turret', callback = callback[4]},
     [5] = {name = 'flamethrower-turret', callback = callback[5]},
-    [6] = {name = 'artillery-turret', callback = callback[6]}
+    [6] = {name = 'artillery-turret', callback = callback[6]},
+    [7] = {name = 'small-worm-turret'},
+    [8] = {name = 'medium-worm-turret'},
+    [9] = {name = 'big-worm-turret'},
+    [10] = {name = 'behemoth-worm-turret'},
+    [11] = {name = 'laser-turret', callback = callback[11]}
 }
 
 local function get_scrap_mineable_entities()
@@ -2356,6 +2363,145 @@ local function biter_chunk(p, data)
     end
 end
 
+local function process_post(p, data)
+    local left_top_y = data.area.left_top.y
+    local level = floor((abs(left_top_y / Public.level_depth)) % 22) + 1
+
+    local x = p.x
+    local y = p.y
+
+    local all_post = WPT.get('crash_site_post')
+    if all_post[level] == nil then
+        local post_table = CrashSite.get_post_table(level)
+        local x_max = floor(Public.level_width * 0.3)
+        local x_min = -x_max
+        local y_min = - level * Public.level_depth + 64
+        local y_max = - (level - 1) * Public.level_depth - 160
+
+        local posts = {}
+        local occupied = {}
+        for _, post in ipairs(post_table) do
+           for _ = 1, 5 do
+               local x = random(x_min + post.radius, x_max - post.radius)
+               local y = random(y_min + post.radius, y_max - post.radius)
+               local overlap = false
+               for _, pos in ipairs(occupied) do
+                   if abs(pos.x - x) < post.radius * 2 then
+                       overlap = true
+                   end
+                   if abs(pos.y - y) < post.radius * 2 then
+                       overlap = true
+                   end
+               end
+               if not overlap then
+                   post.x = x
+                   post.y = y
+                   posts[#posts + 1] = post
+                   occupied[#occupied + 1] = {x = x, y = y}
+                   break
+               end
+           end
+        end
+        all_post[level] = posts
+    end
+
+    local level_post = all_post[level]
+
+    local post
+    for _, s in ipairs(level_post) do
+        if abs(x - s.x) <= s.radius and abs(y - s.y) <= s.radius then
+            post = s
+            break
+        end
+    end
+
+    if post == nil then
+        return false
+    end
+
+    local tiles = data.tiles
+    tiles[#tiles + 1] = {name = 'refined-concrete', position = p}
+
+    local entities = data.entities
+    local dx = x - post.x
+    local dy = y - post.y
+
+    if abs(dx) > post.radius - 2 or abs(dy) > post.radius - 2 then
+        entities[#entities + 1] = {
+            name = 'stone-wall',
+            position = p,
+            force = 'player',
+            callback = stone_wall
+        }
+    elseif abs(dx - 0.5) > post.core_radius or abs(dy - 0.5) > post.core_radius then
+        local index = post.turrets[random(1, #post.turrets)]
+
+        local direction
+        if abs(dx) > abs(dy) then
+            if dx > 0 then
+                direction = defines.direction.east
+            else
+                direction = defines.direction.west
+            end
+        else
+            if dy > 0 then
+                direction = defines.direction.south
+            else
+                direction = defines.direction.north
+            end
+        end
+
+        entities[#entities + 1] = {
+            name = turret_list[index].name,
+            position = p,
+            force = 'enemy',
+            callback = turret_list[index].callback,
+            direction = direction,
+            collision = true
+        }
+    elseif abs(dx) < post.core_radius - 2 and abs(dy) < post.core_radius - 2 then
+        local grid_x = floor(dx / 6 + 0.5)
+        local grid_y = floor(dy / 6 + 0.5)
+        local offset_x = floor(dx - grid_x * 6)
+        local offset_y = floor(dy - grid_y * 6)
+        if (grid_x + grid_y) % 3 == 0 then
+            if offset_x == 0 and offset_y == 0 then
+                entities[#entities + 1] = {
+                    name = post.machine,
+                    position = p,
+                    force = 'neutral',
+                    callback = {
+                        callback = Functions.magic_item_crafting_callback_weighted,
+                        data = {
+                            loot = post.machine_loot,
+                            weights = post.machine_weights
+                        }
+                    },
+                    collision = true
+                }
+            end
+        else
+            if offset_x >= -1 and offset_x <= 2 and offset_y >= -1 and offset_y <= 2 then
+                entities[#entities + 1] = {
+                    name = post.chest,
+                    position = p,
+                    force = 'player',
+                    callback = {
+                        callback = Functions.post_loot_callback,
+                        data = {
+                            loot = post.chest_loot or post.machine_loot,
+                            weights = post.chest_weights or post.machine_weights
+                        }
+                    },
+                    collision = true
+                }
+            end
+        end
+    end
+
+    return true
+end
+
 local function out_of_map(p, data)
     local tiles = data.tiles
     tiles[#tiles + 1] = {name = 'out-of-map', position = p}
@@ -2387,6 +2533,9 @@ function Public.heavy_functions(data)
     end
 
     if top_y < 0 then
+        if process_post(p, data) then
+            return
+        end
         return process_bits(p, data)
     end
 

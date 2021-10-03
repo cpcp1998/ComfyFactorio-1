@@ -120,7 +120,7 @@ local function do_refill_turrets()
     end
 end
 
---[[ local function do_turret_energy()
+local function do_turret_energy()
     local power_sources = this.power_sources
 
     for index = 1, #power_sources do
@@ -132,7 +132,8 @@ end
 
         ps_data.energy = 0xfffff
     end
-end ]]
+end
+
 local function do_magic_crafters()
     local magic_crafters = this.magic_crafters
     local limit = #magic_crafters
@@ -167,9 +168,11 @@ local function do_magic_crafters()
 
             local fcount = floor(count)
 
+            --[[
             if fcount > 1 then
                 fcount = 1
             end
+            --]]
 
             if fcount > 0 then
                 if entity.get_output_inventory().can_insert({name = data.item, count = fcount}) then
@@ -675,6 +678,13 @@ function Public.do_random_loot(entity, weights, loot)
 
     entity.insert {name = stack.name, count = count}
 end
+
+Public.post_loot_callback =
+    Token.register(
+    function(entity, data)
+        Public.do_random_loot(entity, data.callback_data.weights, data.callback_data.loot)
+    end
+)
 
 function Public.remove_offline_players()
     local offline_players_enabled = WPT.get('offline_players_enabled')
@@ -1434,6 +1444,6 @@ Event.add(defines.events.on_player_changed_position, on_player_changed_position)
 Event.add(defines.events.on_pre_player_left_game, on_pre_player_left_game)
 Event.add(defines.events.on_player_respawned, on_player_respawned)
 Event.on_nth_tick(10, tick)
--- Event.on_nth_tick(5, do_turret_energy)
+Event.on_nth_tick(5, do_turret_energy)
 
 return Public

@@ -208,6 +208,7 @@ function Public.reset_table()
     for k, _ in pairs(this.players) do
         this.players[k] = {}
     end
+    this.crash_site_post = {}
 end
 
 function Public.get(key)
